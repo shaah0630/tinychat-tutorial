@@ -29,10 +29,10 @@ void MatmulOperator::mat_mul_loop_unrolling(struct matmul_params *params) {
                 // pointer of the int8 activation
                 const signed char *a_int8 = &A->int8_data_ptr[row * k + ch];
                 // pointer of the int4 weights
-                uint8_t *w0_int4 = &B->int4_data_ptr[(col * k + ch) / 2];
-                uint8_t *w1_int4 = &B->int4_data_ptr[((col + 1) * k + ch) / 2];
-                uint8_t *w2_int4 = &B->int4_data_ptr[((col + 2) * k + ch) / 2];
-                uint8_t *w3_int4 = &B->int4_data_ptr[((col + 3) * k + ch) / 2];
+                uint8_t *w0_int4 = &B->int4_data_ptr[(col * k + ch) / 2];       // get B[col, ch] => equal to B_trans[ch, col]
+                uint8_t *w1_int4 = &B->int4_data_ptr[((col + 1) * k + ch) / 2]; // get B[col + 1, ch] => equal to B_trans[ch, col + 1]
+                uint8_t *w2_int4 = &B->int4_data_ptr[((col + 2) * k + ch) / 2]; // get B[col + 2, ch] => equal to B_trans[ch, col + 2]
+                uint8_t *w3_int4 = &B->int4_data_ptr[((col + 3) * k + ch) / 2]; // get B[col + 3, ch] => equal to B_trans[ch, col + 3]
                 // scale of activation
                 float s_a = params->A_scales[(row * k + ch) / block_size];
                 // scale of weight
@@ -54,9 +54,29 @@ void MatmulOperator::mat_mul_loop_unrolling(struct matmul_params *params) {
                 // intermediate variable to store sum of integer multiplication and accumulation
                 int intermediate_sum0 = 0, intermediate_sum1 = 0, intermediate_sum2 = 0, intermediate_sum3 = 0;
                 for (int qj = 0; qj < 16; qj++) {
-                    // TODO: decode a packed byte into two int8 in the range of (-8, 7)
+                    // decode a packed byte into two int8 in the range of (-8, 7)
+                    uint8_t packed_int4_0 = w0_int4[qj];
+                    uint8_t packed_int4_1 = w1_int4[qj];
+                    uint8_t packed_int4_2 = w2_int4[qj];
+                    uint8_t packed_int4_3 = w3_int4[qj];
 
-                    // TODO: int8 multiply and accumulate operation
+                    signed char w_dec_0_col0 = (packed_int4_0 & 0x0F) - 8;
+                    signed char w_dec_16_col0 = (packed_int4_0 >> 4) - 8;
+                    signed char w_dec_0_col1 = (packed_int4_1 & 0x0F) - 8;
+                    signed char w_dec_16_col1 = (packed_int4_1 >> 4) - 8;
+                    signed char w_dec_0_col2 = (packed_int4_2 & 0x0F) - 8;
+                    signed char w_dec_16_col2 = (packed_int4_2 >> 4) - 8;
+                    signed char w_dec_0_col3 = (packed_int4_3 & 0x0F) - 8;
+                    signed char w_dec_16_col3 = (packed_int4_3 >> 4) - 8;
+                    // int8 multiply and accumulate operation
+                    intermediate_sum0 += a_int8[qj] * w_dec_0_col0;
+                    intermediate_sum0 += a_int8[qj + 16] * w_dec_16_col0;
+                    intermediate_sum1 += a_int8[qj] * w_dec_0_col1;
+                    intermediate_sum1 += a_int8[qj + 16] * w_dec_16_col1;
+                    intermediate_sum2 += a_int8[qj] * w_dec_0_col2;
+                    intermediate_sum2 += a_int8[qj + 16] * w_dec_16_col2;
+                    intermediate_sum3 += a_int8[qj] * w_dec_0_col3;
+                    intermediate_sum3 += a_int8[qj + 16] * w_dec_16_col3;
                 }
                 // dequantize the sum into floating point
                 acc0 += (float)intermediate_sum0 * s_a * s_w0;
