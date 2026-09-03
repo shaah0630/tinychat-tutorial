@@ -87,7 +87,6 @@ void MatmulOperator::mat_mul_simd_programming(struct matmul_params *params) {
                 // <TODO> Separate 2 registers to utilize instruction pipeline for further optimization
                 int32x4_t intermediate_sum0 = vdupq_n_s32(0);
 
-                // according to ARM Intrinsics document, the dot product of two input vectors (s8x16) will be accumulated to current output s32x4 vector
                 intermediate_sum0 = vdotq_s32(intermediate_sum0, a0, w_low_half_int8);
                 intermediate_sum0 = vdotq_s32(intermediate_sum0, a1, w_up_half_int8);
 
