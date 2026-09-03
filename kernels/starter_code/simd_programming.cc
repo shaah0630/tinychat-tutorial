@@ -56,30 +56,45 @@ void MatmulOperator::mat_mul_simd_programming(struct matmul_params *params) {
                    We will accelerate the program using ARM Intrinsics. You can check the documentation of operations
                    at: https://developer.arm.com/architectures/instruction-sets/intrinsics
                 */
-                // TODO: decode the lower and upper half of the weights as int8x16_t
+                // decode the lower and upper half of the weights as int8x16_t
                 // Hint:
                 // (1) use `vandq_u8` with the mask_low4bit to get the lower half
                 // (2) use `vshrq_n_u8` to right shift 4 bits and get the upper half
                 // (3) use `vreinterpretq_s8_u8` to interpret the  vector as int8
                 // lowbit mask
                 const uint8x16_t mask_low4bit = vdupq_n_u8(0xf);
+                const uint8x16_t w_low_half = vandq_u8(w0, mask_low4bit);   // w0 ~ w15
+                const uint8x16_t w_up_half = vshrq_n_u8(w0, 4);             // w16 ~ w31
 
-                // TODO: apply zero_point to weights and convert the range from (0, 15) to (-8, 7)
+                int8x16_t w_low_half_int8 = vreinterpretq_s8_u8(w_low_half);
+                int8x16_t w_up_half_int8 = vreinterpretq_s8_u8(w_up_half);
+
+                // apply zero_point to weights and convert the range from (0, 15) to (-8, 7)
                 // Hint: using `vsubq_s8` to the lower-half and upper-half vectors of weights
                 const int8x16_t offsets = vdupq_n_s8(8);
+
+                w_low_half_int8 = vsubq_s8(w_low_half_int8, offsets);
+                w_up_half_int8 = vsubq_s8(w_up_half_int8, offsets);
 
                 // load 32 8-bit activation
                 const int8x16_t a0 = vld1q_s8(a_start);
                 const int8x16_t a1 = vld1q_s8(a_start + 16);
                 a_start += 32;
 
-                // TODO: perform dot product and store the result into the intermediate sum, int_sum0
+                // perform dot product and store the result into the intermediate sum, int_sum0
                 // Hint: use `vdotq_s32` to compute sumv0 = a0 * lower-half weights + a1 * upper-half weights
                 // int32x4 vector to store intermediate sum
-                int32x4_t int_sum0;
+                // <TODO> Separate 2 registers to utilize instruction pipeline for further optimization
+                int32x4_t intermediate_sum0 = vdupq_n_s32(0);
+
+                // according to ARM Intrinsics document, the dot product of two input vectors (s8x16) will be accumulated to current output s32x4 vector
+                intermediate_sum0 = vdotq_s32(intermediate_sum0, a0, w_low_half_int8);
+                intermediate_sum0 = vdotq_s32(intermediate_sum0, a1, w_up_half_int8);
 
                 float s_0 = *s_a++ * *s_w++;
-                sumv0 = vmlaq_n_f32(sumv0, vcvtq_f32_s32(int_sum0), s_0);
+                // vcvtq_f32_s32: signed fixed-point convert to floating-point (vector)
+                // vmlaq_n_f32: vector multiply accumulate with scalar
+                sumv0 = vmlaq_n_f32(sumv0, vcvtq_f32_s32(intermediate_sum0), s_0);  // = sumv0 + (intermediate_sum0 * s_0)
             }
             C->data_ptr[row * n + col] = vaddvq_f32(sumv0);
 #endif
