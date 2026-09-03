@@ -7,10 +7,12 @@
 
 #include "../matmul.h"
 #include "common.h"
+
 struct multithreading_loop_unrolling_thread_args {
     int start, end;
     const struct matmul_params *params;
 };
+
 static void *multithreading_loop_unrolling_worker_func(void *args) {
     struct multithreading_loop_unrolling_thread_args *mat_args =
         (struct multithreading_loop_unrolling_thread_args *)args;
@@ -56,9 +58,30 @@ static void *multithreading_loop_unrolling_worker_func(void *args) {
                 // intermediate variable to store sum of integer multiplication and accumulation
                 int intermediate_sum0 = 0, intermediate_sum1 = 0, intermediate_sum2 = 0, intermediate_sum3 = 0;
                 for (int qj = 0; qj < 16; qj++) {
-                    // TODO: decode a packed byte into two int8 in the range of (-8, 7)
+                    // decode a packed byte into two int8 in the range of (-8, 7)
+                    uint8_t packed_int4_0 = w0_int4[qj];
+                    uint8_t packed_int4_1 = w1_int4[qj];
+                    uint8_t packed_int4_2 = w2_int4[qj];
+                    uint8_t packed_int4_3 = w3_int4[qj];
 
-                    // TODO: int8 multiply and accumulate operation
+                    signed char w_dec_0_col0 = (packed_int4_0 & 0x0F) - 8;
+                    signed char w_dec_16_col0 = (packed_int4_0 >> 4) - 8;
+                    signed char w_dec_0_col1 = (packed_int4_1 & 0x0F) - 8;
+                    signed char w_dec_16_col1 = (packed_int4_1 >> 4) - 8;
+                    signed char w_dec_0_col2 = (packed_int4_2 & 0x0F) - 8;
+                    signed char w_dec_16_col2 = (packed_int4_2 >> 4) - 8;
+                    signed char w_dec_0_col3 = (packed_int4_3 & 0x0F) - 8;
+                    signed char w_dec_16_col3 = (packed_int4_3 >> 4) - 8;
+
+                    // int8 multiply and accumulate operation
+                    intermediate_sum0 += a_int8[qj] * w_dec_0_col0;
+                    intermediate_sum0 += a_int8[qj + 16] * w_dec_16_col0;
+                    intermediate_sum1 += a_int8[qj] * w_dec_0_col1;
+                    intermediate_sum1 += a_int8[qj + 16] * w_dec_16_col1;
+                    intermediate_sum2 += a_int8[qj] * w_dec_0_col2;
+                    intermediate_sum2 += a_int8[qj + 16] * w_dec_16_col2;
+                    intermediate_sum3 += a_int8[qj] * w_dec_0_col3;
+                    intermediate_sum3 += a_int8[qj + 16] * w_dec_16_col3;
                 }
                 // dequantize the sum into floating point
                 acc0 += (float)intermediate_sum0 * s_a * s_w0;
@@ -130,8 +153,21 @@ void MatmulOperator::mat_mul_multithreading_loop_unrolling(struct matmul_params 
     struct multithreading_loop_unrolling_thread_args threads_args[num_thread];
     assert(params->block_size == 32);  // support block size 32 for now
 
-    // TODO: Thread creation
+    // Thread creation
+    const int tile_size = n / num_thread;
 
-    // TODO: Join threads
+    for (int i = 0; i < num_thread; i++) {
+        // Just pass the pointer to input matmul_params to each thread
+        threads_args[i].params = params;
+        // Split matrixes to different tiles and dispatch to corresponding worker thread
+        threads_args[i].start = tile_size * i;
+        threads_args[i].end = threads_args[i].start + tile_size;
+
+        pthread_create(&thread_pool[i], NULL, multithreading_loop_unrolling_worker_func, &threads_args[i]);
+    }
+
+    // Join threads
+    for (int i = 0; i < num_thread; i++)
+        pthread_join(thread_pool[i], NULL);
 };
 }  // namespace matmul
