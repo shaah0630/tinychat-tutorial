@@ -11,9 +11,9 @@ struct multithreading_thread_args {
     int start, end;
     const struct matmul_params* params;
 };
-static void* multithreading_worker_func(void* args) {
-    struct multithreading_thread_args* mat_args = (struct multithreading_thread_args*)args;
-    const struct matmul_params* params = mat_args->params;
+static void *multithreading_worker_func(void *args) {
+    struct multithreading_thread_args *mat_args = (struct multithreading_thread_args *)args;
+    const struct matmul_params *params = mat_args->params;
     const struct matrix *A = &params->A, *B = &params->B, *C = &params->C;
     const int block_size = params->block_size;
 
@@ -25,9 +25,9 @@ static void* multithreading_worker_func(void* args) {
             // Compute each block
             for (int ch = 0; ch < k;) {
                 // pointer of the int4 weights
-                uint8_t* w_int4 = &B->int4_data_ptr[(col * k + ch) / 2];
+                uint8_t *w_int4 = &B->int4_data_ptr[(col * k + ch) / 2];
                 // pointer of the int8 activation
-                const signed char* a_int8 = &A->int8_data_ptr[row * k + ch];
+                const signed char *a_int8 = &A->int8_data_ptr[row * k + ch];
                 // scale of weight
                 float s_w = params->scales[(col * k + ch) / block_size];
                 // scale of activation
@@ -109,8 +109,23 @@ void MatmulOperator::mat_mul_multithreading(struct matmul_params* params) {
     pthread_t thread_pool[num_thread];
     struct multithreading_thread_args threads_args[num_thread];
 
-    // TODO: Thread creation
+    // Thread creation
+    const int tile_size = n / num_thread;
+    //printf("m = %d, n = %d, k = %d, tile_size = %d\n", m, n, k, tile_size);   // DEBUG
+    for (int i = 0; i < num_thread; i++) {
+        // Just pass the pointer to input matmul_params to each thread
+        threads_args[i].params = params;
+        // Split matrixes to different tiles and dispatch to corresponding worker thread
+        threads_args[i].start = tile_size * i;
+        threads_args[i].end = threads_args[i].start + tile_size;
 
-    // TODO: Join threads
-};
+        //printf("i = %d: start = %d, end = %d\n", i, threads_args[i].start, threads_args[i].end);  // DEBUG
+
+        pthread_create(&thread_pool[i], NULL, multithreading_worker_func, &threads_args[i]);
+    }
+
+    // Join threads
+    for (int i = 0; i < num_thread; i++)
+        pthread_join(thread_pool[i], NULL);
+}
 }  // namespace matmul
